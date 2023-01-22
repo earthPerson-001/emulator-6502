@@ -29,10 +29,10 @@ impl Bus<u8> {
             return self.memory[address];
         }
         else if address < self.other.len() as u16 {
-            return self.other[address as usize];
+            return self.other[(address - self.memory.len() as u16) as usize];
         }
         else if address < self.secondary_storage.len() as u16 {
-            return self.secondary_storage[address as usize];
+            return self.secondary_storage[(address - self.memory.len() as u16 - self.other.len() as u16) as usize];
         }
         else {
             return 0x00;
@@ -44,10 +44,10 @@ impl Bus<u8> {
             self.memory[address] = data;
         }
         else if address < self.other.len() as u16 {
-            self.other[address as usize] = data;
+            self.other[(address - self.memory.len() as u16) as usize] = data;
         }
         else if address < self.secondary_storage.len() as u16 {
-            self.secondary_storage[address as usize] = data;
+            self.secondary_storage[(address - self.memory.len() as u16 - self.other.len() as u16) as usize] = data;
         }
         else {
             panic!("Invalid Write Address");
