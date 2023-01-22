@@ -192,11 +192,12 @@ impl Processor {
  */
 #[allow(non_snake_case)]
 impl Processor {
-    /** 
-     * Absolute
-     * The data is present in  
-       16 bit address present in program counter in the form of little endian $LLHH 
-     */
+    /**
+     # Description
+    * Absolute
+    * The data is present in
+      16 bit address present in program counter in the form of little endian $LLHH
+    */
     fn ABS(&mut self) -> bool {
         self.address_absolute = (self.bus.read(self.program_counter + 1) as u16) << 8
             | self.bus.read(self.program_counter) as u16;
@@ -206,12 +207,12 @@ impl Processor {
     }
 
     /**
-     * Returns `false` if page doesn't change `true` otherwise
-     
-     *  Absolute X
-     *  Same as `ABS()` but the value of  `index_register_x` is added to the address and 
-        if the page changes, then one more cycle is required so boolean value of `true` is returned
-     */
+    * Returns `false` if page doesn't change `true` otherwise
+    # Description
+    *  Absolute X
+    *  Same as `ABS()` but the value of  `index_register_x` is added to the address and
+       if the page changes, then one more cycle is required so boolean value of `true` is returned
+    */
     fn ABSX(&mut self) -> bool {
         self.address_absolute = (self.bus.read(self.program_counter + 1) as u16) << 8
             | self.bus.read(self.program_counter) as u16;
@@ -226,13 +227,13 @@ impl Processor {
         !(old_high_bits == new_high_bits)
     }
 
-     /**
-     * Returns `false` if page doesn't change `true` otherwise
-     
-     *  Absolute Y
-     *  Same as `ABS()` but the value of  `index_register_y` is added to the address and 
-        if the page changes, then one more cycle is required so boolean value of `true` is returned
-     */
+    /**
+    * Returns `false` if page doesn't change `true` otherwise
+    # Description
+    *  Absolute Y
+    *  Same as `ABS()` but the value of  `index_register_y` is added to the address and
+       if the page changes, then one more cycle is required so boolean value of `true` is returned
+    */
     fn ABSY(&mut self) -> bool {
         self.address_absolute = (self.bus.read(self.program_counter + 1) as u16) << 8
             | self.bus.read(self.program_counter) as u16;
@@ -247,12 +248,13 @@ impl Processor {
         !(old_high_bits == new_high_bits)
     }
 
-    /** 
-     * zeropage
-     
-     * The address of the data is at the program counter address
-     * Data present at 0x00 - 0xFF
-     */
+    /**
+    # Description
+    * zeropage
+
+    * The address of the data is at the program counter address
+    * Data present at 0x00 - 0xFF
+    */
     fn ZPG(&mut self) -> bool {
         self.address_absolute = 0x00FF & self.bus.read(self.program_counter) as u16;
         self.program_counter += 1;
@@ -261,7 +263,7 @@ impl Processor {
     }
 
     /**
-     *  zeropage, X-indexed 
+     *  zeropage, X-indexed
      * Same as `ZPG()` but the address is present at offset `index_register_x` from `program_counter`
      */
     fn ZPGX(&mut self) -> bool {
@@ -275,9 +277,10 @@ impl Processor {
     }
 
     /**
-     *  zeropage, Y-indexed 
-     * Same as `ZPG()` but the address is present at offset `index_register_y` from `program_counter`
-     */
+    # Description
+    *  zeropage, Y-indexed
+    * Same as `ZPG()` but the address is present at offset `index_register_y` from `program_counter`
+    */
     fn ZPGY(&mut self) -> bool {
         self.address_absolute = 0x00FF
             & self
@@ -289,25 +292,89 @@ impl Processor {
     }
 
     /**
-     *  Indirect 
-     *  In indirect modes, the provided 16 bit address is used to lookup the actual 16bit address
-        . In a sense, this behaves like address pointers
-     * */
+     # Description
+    *  Indirect
+    *  In indirect modes, the provided 16 bit address is used to lookup the actual 16 bit address
+       . In a sense, this behaves like address pointers
+
+    * There is a hardware bug in this mode, and we need to emulate that too
+    * */
     fn IND(&mut self) -> bool {
+        let pointer_low = self.bus.read(self.program_counter) as u16;
+        self.program_counter += 1;
+
+        let pointer_high = self.bus.read(self.program_counter) as u16;
+        self.program_counter += 1;
+
+        let pointer = pointer_high << 8 | pointer_low;
+
+        // The high bits will be read from the start of the same page because of the hardware bug
+
+        if pointer_low == 0x00FF {
+            // Simulate the page boundary hardware bug
+            self.address_absolute =
+                (self.bus.read(pointer_high) << 8) as u16 | self.bus.read(pointer + 0) as u16;
+        } else {
+            // behave normally
+            self.address_absolute =
+                ((self.bus.read(pointer + 1)) << 8) as u16 | self.bus.read(pointer + 0) as u16;
+        }
+
         false
     }
 
-    /* indirect, X-indexed */
+    /**
+     # Description
+    *  indirect, X-indexed, also utilizes zero page
+
+    * The supplied 8 bit address is offset by the value in `index_register_x` to index a location in zero-page
+    * and the actual address is read from the given address and the consequent one
+    */
     fn INDX(&mut self) -> bool {
+        let actual_pointer = (self.bus.read(self.program_counter) + self.index_register_x) as u16;
+        self.program_counter += 1;
+
+        self.address_absolute =
+            (self.bus.read(actual_pointer + 1) << 8) as u16 | self.bus.read(actual_pointer) as u16;
+
         false
     }
 
-    /* indirect, Y-indexed */
+    /**
+    # Returns
+    false if offset causes page change and additional cycle is required
+    true otherwise
+
+    # Description
+    *  indirect, Y-indexed, also utilizes zero page
+
+    * The supplied 8 bit address is used to lookup another address which is offset by the content of `index_register_y`
+     to get the final address
+
+    * Here, first a pair of 8-bit addresses is found in zero-page to make the 16 bit address
+     which is then offset by the value in `index_register_y` to get the final address
+
+    * If the addition of offset causes page change, then additional clock cycle is required
+    */
     fn INDY(&mut self) -> bool {
-        false
+        let address_before_offset = (self
+            .bus
+            .read((self.bus.read((self.program_counter) as u16) + 1) as u16)
+            as u16)
+            << 8
+            | (self
+                .bus
+                .read(self.bus.read(self.program_counter as u16) as u16)) as u16;
+        self.program_counter += 1;
+
+        self.address_absolute = address_before_offset + self.index_register_y as u16;
+
+        address_before_offset & 0xFF00 != self.address_absolute & 0xFF00 
     }
 
-    /** implied
+    /** 
+    # Description 
+     * implied
      * No additional data required
      */
     fn IMPL(&mut self) -> bool {
@@ -316,8 +383,15 @@ impl Processor {
         false
     }
 
-    /* relative */
+    /**
+    # Description 
+     *  relative */
     fn REL(&mut self) -> bool {
+        self.address_relative = self.bus.read(self.program_counter);
+        self.program_counter += 1;
+
+        // if (self.address_relative & 0x80) {self.address_relative |= 0xFF00}
+
         false
     }
 
