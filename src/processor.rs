@@ -8,14 +8,18 @@ const ZERO_POS: u8 = 1; // z
 const INTERRUPT_DISABLE_POS: u8 = 2; // i
 const DECIMAL_POS: u8 = 3; // d
 const B_FLAG_POS: u8 = 4; // b
-const OVERFLOW_POS: u8 = 5; // o
-const NEGATIVE_POS: u8 = 6; // n
+const UNUSED_FLAG_POS: u8 = 5; // u         //  ignored in some documentations
+const OVERFLOW_POS: u8 = 6; // o
+const NEGATIVE_POS: u8 = 7; // n
 
 // Sizes
 // Setting the size to be 64 KB, in case of 6502
 const KB: usize = 1024;
 
+// memory
 const RAM: usize = 16 * KB; // 16 KB RAM    (0 - 16 * 1024-1) ( 0x0000 - 0x3FFF)
+const STACK_ADDRESS_RANGE: (u16, u16) = (0x0100, 0x01FF);
+
 const OTHER: usize = 16 * KB; // 16 KB other addressed (like 16KB, but the addresses might be other devices) (16* 1024 - 32 * 1024) (0x4000 - 0x7FFF)
 const ROM: usize = 32 * KB; // 32 KB ROM (32 * 1024 - 64 * 1024) (0x8000 - 0xFFFF)
 
@@ -42,17 +46,22 @@ pub struct Processor {
     fetched: u8,
     temp: u16,
     address_absolute: u16,
-    address_relative: u8,
+    address_relative: u16,
     opcode: u8,
     cycles: u8,
+
+    // Variables denoting the stack location in RAM
+    // stack (Reversed)
+    stack_last_address: u16,
+    stack_first_address: u16
 }
 
-/*
-The default value for memory field is memory with given size (bytes)
-and for the instruction set, the default value if from `create_instruction_table()` function of instructions struct
-Everything else defaults to zero for integers
-*/
 impl Default for Processor {
+    /**
+    * The default value for memory field is memory with given size (bytes)
+    * For the instruction set, the default value is the value returned by `create_instruction_table()` function of struct `Instruction`
+    * Everything else defaults to zero for integers
+    */
     fn default() -> Self {
         Self {
             bus: Bus::new(Memory::new(RAM), vec![0; OTHER], vec![0; ROM]),
@@ -70,6 +79,9 @@ impl Default for Processor {
             address_relative: 0x00,
             opcode: 0x00,
             cycles: 0x00,
+
+            stack_last_address: STACK_ADDRESS_RANGE.0,
+            stack_first_address: STACK_ADDRESS_RANGE.1, 
         }
     }
 }
@@ -118,6 +130,11 @@ impl Processor {
         (self.status & compare_bit) != 0
     }
 
+    pub fn get_u(&self) -> bool {
+        let compare_bit = 0x01 << UNUSED_FLAG_POS;
+        (self.status & compare_bit) != 0
+    }
+
     pub fn get_o(&self) -> bool {
         let compare_bit = 0x01 << OVERFLOW_POS;
         (self.status & compare_bit) != 0
@@ -160,6 +177,13 @@ impl Processor {
         match x {
             true => self.status |= 0x1 << B_FLAG_POS,
             false => self.status &= !(0x1 << B_FLAG_POS),
+        }
+    }
+
+    pub fn set_u(&mut self, x: bool) {
+        match x {
+            true => self.status |= 0x1 << UNUSED_FLAG_POS,
+            false => self.status &= !(0x1 << UNUSED_FLAG_POS),
         }
     }
 
@@ -491,10 +515,13 @@ impl Processor {
     # Description
      *  relative */
     fn REL(&mut self) -> bool {
-        self.address_relative = self.bus.read(self.program_counter);
+        self.address_relative = self.bus.read(self.program_counter) as u16;
         self.program_counter += 1;
 
-        // if (self.address_relative & 0x80) {self.address_relative |= 0xFF00}
+        // if the relative address is negative
+        if (self.address_relative & 0x80) == 0x80 {
+            self.address_relative |= 0xFF00;    // make every other bit 1 (denoting negative address)
+        }
 
         false
     }
@@ -744,7 +771,31 @@ impl Processor {
 
     // break / interrupt
     fn BRK(&mut self) -> bool {
-        true
+        self.program_counter += 1;
+
+        // setting interrupt inhibit flag
+        self.set_i(true);
+
+        // pushing the program_counter to stack
+        self.bus.write(self.stack_last_address + self.stack_pointer as u16, ((self.program_counter >> 8) & 0x00FF) as u8);
+        self.stack_pointer -= 1;
+        self.bus.write(self.stack_last_address + self.stack_pointer as u16, (self.program_counter & 0x00FF) as u8);
+        self.stack_pointer -= 1;
+
+        // setting the break flag
+        self.set_b(true);
+
+        // pushing the status register to stack
+        self.bus.write(self.stack_last_address + self.stack_pointer as u16, self.status);
+        self.stack_pointer -= 1;
+
+        // clearing the break flag
+        self.set_b(false);
+
+        // setting the program counter to the value in final addresses (target addresses for break)
+        self.program_counter = (self.bus.read(0xFFFF) as u16) << 8 | self.bus.read(0xFFFE) as u16;
+
+        false
     }
 
     // branch on overflow clear
@@ -1010,22 +1061,51 @@ impl Processor {
 
     // push accumulator to stack
     fn PHA(&mut self) -> bool {
-        true
+        self.bus.write(self.stack_last_address + self.stack_pointer as u16, self.accumulator);
+        self.stack_pointer -= 1;
+
+        false
     }
 
     // push processor status (`self.status`) to stack
+    // Break flag is set to 1 before push
     fn PHP(&mut self) -> bool {
-        true
+
+        self.bus.write(self.stack_last_address + self.stack_pointer as u16,
+             self.status 
+             | ((self.get_u() as u8) << UNUSED_FLAG_POS) 
+             | (((self.get_b() as u8) <<  B_FLAG_POS)));
+
+        self.set_b(false);
+        self.set_u(false);
+
+        self.stack_pointer -= 1;
+
+        false
     }
 
     // pull accumulator from stack (pop accumulator off stack)
     fn PLA(&mut self) -> bool {
-        true
+        self.stack_pointer += 1;
+
+        self.accumulator = self.bus.read(self.stack_last_address + self.stack_pointer as u16);
+
+        // setting the flags depending upon the new accumulator value
+        self.set_z(self.accumulator == 0x00);
+        self.set_n((self.accumulator & (1 << 7)) == (1 << 7));
+
+        false
     }
 
     // pull processor status (`self.status`) (pop status register off stack)
     fn PLP(&mut self) -> bool {
-        true
+        self.stack_pointer += 1;
+
+        self.status = self.bus.read(self.stack_last_address + self.stack_pointer as u16);
+
+        self.set_u(true);
+
+        false
     }
 
     // rotate left
@@ -1050,17 +1130,63 @@ impl Processor {
 
     // rotate right
     fn ROR(&mut self) -> bool {
-        true
+        
+        // shifting one bit to right and setting the carry bit in the leftmost bit
+        self.temp = ((self.get_c() as u8) << 7) as u16 | ((self.fetch()) >> 1) as u16; 
+
+        // setting carry flag if the removed bit is 1
+        self.set_c((self.fetched & 0x01) == 0x01);
+
+        // setting the zero flag if the remaining bits are 0
+        self.set_z((self.temp & 0x00FF) == 0x0000);
+
+        // setting the negative flag if bit 7 is 1
+        self.set_n((self.temp & (1 << 7)) == (1 << 7));
+
+        // writing to accumulatro or to the memory
+        if self.instructions[self.opcode as usize].addressing_mode_enum == AddressingMode::IMPL {
+            self.accumulator = (self.temp & 0x00FF) as u8;
+        } else {
+            self.bus.write(self.address_absolute, (self.temp & 0x00FF) as u8)
+        }
+
+        // no additional clock cycle required
+        false
     }
 
     // return from interrupt
     fn RTI(&mut self) -> bool {
-        true
+        self.stack_pointer += 1;
+
+        // getting the status from stack
+        self.status = self.bus.read(self.stack_last_address + self.stack_pointer as u16);
+
+        // changing the break and unused flags
+        self.set_b(!self.get_b());
+        self.set_u(!self.get_u());
+
+        self.stack_pointer += 1;
+
+        // getting the program counter from stack
+        self.program_counter = (self.bus.read(self.stack_last_address + self.stack_pointer as u16 + 1) as u16) << 8 
+                                | self.bus.read(self.stack_last_address + self.stack_pointer as u16) as u16;
+        self.stack_pointer += 1;
+
+        false
     }
 
     // return from subroutine
     fn RTS(&mut self) -> bool {
-        true
+        self.stack_pointer += 1;
+
+        // getting the program counter from stack
+        self.program_counter = (self.bus.read(self.stack_last_address + self.stack_pointer as u16 + 1) as u16) << 8 
+                                | self.bus.read(self.stack_last_address + self.stack_pointer as u16) as u16;
+        self.stack_pointer += 1;
+
+        self.program_counter += 1;
+
+        false
     }
 
     // subtract with carry (burrow)
