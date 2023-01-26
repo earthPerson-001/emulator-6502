@@ -23,6 +23,17 @@ const STACK_ADDRESS_RANGE: (u16, u16) = (0x0100, 0x01FF);
 const OTHER: usize = 16 * KB; // 16 KB other addressed (like 16KB, but the addresses might be other devices) (16* 1024 - 32 * 1024) (0x4000 - 0x7FFF)
 const ROM: usize = 32 * KB; // 32 KB ROM (32 * 1024 - 64 * 1024) (0x8000 - 0xFFFF)
 
+// Initial address of program counter
+const INITIAL_PROGRAM_COUNTER_ADDRESS: u16 = 0xFFFC;    // 0xFFFC and 0xFFFD are the addresses for initial program counter
+
+// Fixed address to read from when interrupt/ break occurs
+
+/// valid for breaks and irq
+const FIXED_READING_ADDRESS_FOR_BRK_AND_IRQ: u16 = 0xFFFE;     // 0xFFFE and 0xFFFF are the address when break or interrupt occurs
+
+/// valid for nmi
+const FIXED_READING_ADDRESS_FOR_NMI: u16 = 0xFFFA;
+
 // 6502
 /**
 * 6502 is little endian, valid for 16 bit addresses
@@ -39,6 +50,10 @@ pub struct Processor {
     index_register_x: u8,
     index_register_y: u8,
     status: u8,
+    /// To be consistent across the implementations
+    /// `stack_pointer` should always point to the empty location
+    /// * i.e to get the last item, `stack_pointer` should be incremented before reading
+    /// * and to add a item, `stack_pointer` should be decremented after writing 
     stack_pointer: u8,
     program_counter: u16,
 
@@ -52,7 +67,10 @@ pub struct Processor {
 
     // Variables denoting the stack location in RAM
     // stack (Reversed)
+    /// The top of the stack
     stack_last_address: u16,
+
+    #[allow(dead_code)] // might be useful to detect stack overflow later
     stack_first_address: u16
 }
 
@@ -308,6 +326,148 @@ pub enum Operation {
     SBX, 
     ISC, 
     USBC,
+}
+
+// reset function implementation
+impl Processor {
+
+    /**
+     * Forces the CPU into known state
+     * 
+     # Operations
+     * Set the program counter to the address stored at `0xFFFD` | `0xFFFC` 
+     * Reset the internal registers 
+     */
+    pub fn reset(&mut self) -> () {
+        // set the next address for program counter
+        self.program_counter = self.bus.read(INITIAL_PROGRAM_COUNTER_ADDRESS + 1 as u16) as u16 
+                                | self.bus.read(INITIAL_PROGRAM_COUNTER_ADDRESS) as u16;
+        
+        // reset internal registers
+        self.accumulator = 0x00;
+        self.index_register_x = 0x00;
+        self.index_register_y = 0x00;
+        self.stack_pointer = 0xFF;
+        self.status = 0x00;
+
+        self.set_u(true); // always setting the unused state to true
+
+        // clearing helper variables
+        self.fetched = 0x00;
+        self.address_absolute = 0x0000;
+        self.address_relative = 0x0000;
+
+        self.cycles = 8; // reset takes time
+
+    }
+}
+
+
+// Interrupts implementations 
+impl Processor {
+
+    // can be ignored
+    fn irq(&mut self) {
+        // if interrupts are allowed // it might not be allowed when interrupt is ongoing
+        if !self.get_i() {
+
+            // pushing the current program counter to stack
+            self.bus.write(self.stack_last_address + self.stack_pointer as u16, ((self.program_counter >> 8) & 0x00FF) as u8 );
+            self.stack_pointer -= 1;
+            self.bus.write(self.stack_last_address + self.stack_pointer as u16, (self.program_counter & 0x00FF) as u8 );
+            self.stack_pointer -= 1;
+
+            // changing the status registers
+            self.set_b(false); self.set_u(true); self.set_i(true);
+
+            // pushing the processor status to stack
+            self.bus.write(self.stack_last_address + self.stack_pointer as u16, self.status);
+            self.stack_pointer -= 1;
+
+            // reading the new program counter from the fixed address
+            self.program_counter = (self.bus.read(FIXED_READING_ADDRESS_FOR_BRK_AND_IRQ + 1) as u16) << 8 
+                                    | (self.bus.read(FIXED_READING_ADDRESS_FOR_BRK_AND_IRQ)) as u16;
+
+            // some time is required for irq
+            self.cycles = 7;
+        }
+    }
+
+    // cannot be ignored
+    fn nmi(&mut self) {
+        // pushing the current program counter to stack
+        self.bus.write(self.stack_last_address + self.stack_pointer as u16, ((self.program_counter >> 8) & 0x00FF) as u8 );
+        self.stack_pointer -= 1;
+        self.bus.write(self.stack_last_address + self.stack_pointer as u16, (self.program_counter & 0x00FF) as u8 );
+        self.stack_pointer -= 1;
+
+        // changing the status registers
+        self.set_b(false); self.set_u(true); self.set_i(true);
+
+        // pushing the processor status to stack
+        self.bus.write(self.stack_last_address + self.stack_pointer as u16, self.status);
+        self.stack_pointer -= 1;
+
+        // reading the new program counter from the fixed address
+        self.program_counter = (self.bus.read(FIXED_READING_ADDRESS_FOR_NMI + 1) as u16) << 8 
+                                | (self.bus.read(FIXED_READING_ADDRESS_FOR_NMI)) as u16;
+
+        // some time is required for nmi
+        self.cycles = 8;
+    }
+
+} 
+
+// CPU clock implementation
+// typical fetch, decode, execute cycle
+impl Processor {
+
+    fn clock(&mut self) {
+        /*
+            The instruction set is stored in such a way that it's index corresponds to the opcode.
+            Since, hex and decimal number are equivalent,
+            it doesn't matter if the opcode is represented in hex when storing in ROM or any other storage
+        */
+
+        // if there are no other pending instruction (previous instruction's execution has completed)
+        if self.cycles == 0  {
+
+            // the next instruction byte (aka opcode)
+            self.opcode = self.bus.read(self.program_counter);
+
+            // always set the unused falg to 1 
+            self.set_u(true);
+
+            // incrementing the program counter as this instruction is already read
+            // and instruction may not execute next one immediately ( turns out this is a standard practice)
+            // i.e fetch instruction -> increment program counter -> execute instruction
+            self.program_counter += 1;
+
+            // get the starting number of cycles
+            self.cycles = self.instructions.get(self.opcode as usize).unwrap().cycles;
+
+            // performing the fetch operation
+            // and finding out if additional cycle is required by fetch
+            let additional_cycle_for_fetch = (self.instructions.get(self.opcode as usize).unwrap().addressing_mode)(self);
+            // performing the execute operation 
+            // and finding out if the operation has the potential to require additional cycle
+            let additional_cycle_for_execute = (self.instructions.get(self.opcode as usize).unwrap().addressing_mode)(self);
+
+            // if more additional cycle is required by particular operation
+            // then it should be incremented inside of the operation
+            
+            // incrementing cycle if the fetch operation required more cycle and execute operation had the potential to require more cycle
+            self.cycles += (additional_cycle_for_fetch && additional_cycle_for_execute) as u8;
+
+            // always set the unused falg to 1 
+            self.set_u(true);
+        }
+
+        // decrementing the required cycle for the currently running instruction
+        // as one cycle has passed
+        self.cycles -= 1;
+
+    }
 }
 
 /**
@@ -793,7 +953,8 @@ impl Processor {
         self.set_b(false);
 
         // setting the program counter to the value in final addresses (target addresses for break)
-        self.program_counter = (self.bus.read(0xFFFF) as u16) << 8 | self.bus.read(0xFFFE) as u16;
+        self.program_counter = (self.bus.read(FIXED_READING_ADDRESS_FOR_BRK_AND_IRQ + 1) as u16) << 8 
+                                | self.bus.read(FIXED_READING_ADDRESS_FOR_BRK_AND_IRQ) as u16;
 
         false
     }
@@ -1729,4 +1890,75 @@ impl Instruction {
             Instruction::new(r#"ISC"#, r#""#, Processor::ISC,  Operation::ISC, Processor::ABSX, AddressingMode::ABSX, 7),
         ]
     }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    /**
+     * Whether or not the getters for status register work properly
+     */
+    #[test]
+    fn get_status() {
+        let mut test_processor = Processor::new();
+        test_processor.reset();
+
+        // testing with values from 0 to 255
+        for value in 0..=255 as u8 {
+
+            // testing get
+            test_processor.status = value;
+            assert_eq!(test_processor.get_c(), (test_processor.status & (1 << CARRY_POS) == (1 << CARRY_POS)));
+            assert_eq!(test_processor.get_z(), (test_processor.status & (1 << ZERO_POS) == (1 << ZERO_POS)));
+            assert_eq!(test_processor.get_i(), (test_processor.status & (1 << INTERRUPT_DISABLE_POS) == (1 << INTERRUPT_DISABLE_POS)));
+            assert_eq!(test_processor.get_d(), (test_processor.status & (1 << DECIMAL_POS) == (1 << DECIMAL_POS)));
+            assert_eq!(test_processor.get_b(), (test_processor.status & (1 << B_FLAG_POS) == (1 << B_FLAG_POS)));
+            assert_eq!(test_processor.get_u(), (test_processor.status & (1 << UNUSED_FLAG_POS) == (1 << UNUSED_FLAG_POS)));
+            assert_eq!(test_processor.get_o(), (test_processor.status & (1 << OVERFLOW_POS) == (1 << OVERFLOW_POS)));
+            assert_eq!(test_processor.get_n(), (test_processor.status & (1 << NEGATIVE_POS) == (1 << NEGATIVE_POS)));
+        }
+    }
+
+    /**
+     * Whether or not the setters for status register work properly, given getters work properly
+     */
+    #[test]
+    fn set_status() {
+        let mut test_processor = Processor::new();
+        test_processor.reset();
+
+        let boolean_values = [true, false];
+
+        for value in boolean_values.iter() {
+            // testing set
+            test_processor.set_b(value.to_owned());
+            assert_eq!(test_processor.get_b(), value.to_owned());
+
+            test_processor.set_c(value.to_owned());
+            assert_eq!(test_processor.get_c(), value.to_owned());
+
+            test_processor.set_d(value.to_owned());
+            assert_eq!(test_processor.get_d(), value.to_owned());
+
+            test_processor.set_i(value.to_owned());
+            assert_eq!(test_processor.get_i(), value.to_owned());
+
+            test_processor.set_n(value.to_owned());
+            assert_eq!(test_processor.get_n(), value.to_owned());
+
+            test_processor.set_o(value.to_owned());
+            assert_eq!(test_processor.get_o(), value.to_owned());
+
+            test_processor.set_u(value.to_owned());
+            assert_eq!(test_processor.get_u(), value.to_owned());
+
+            test_processor.set_z(value.to_owned());
+            assert_eq!(test_processor.get_z(), value.to_owned());
+        }
+        
+    }
+
+
 }
