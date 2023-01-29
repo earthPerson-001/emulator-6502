@@ -1,8 +1,10 @@
-pub struct Memory<T> {
+use num::traits::int::PrimInt;
+
+pub struct Memory<T: PrimInt + std::convert::From<u8>> {
     mem: Vec<T>,
 }
 
-impl Memory<u8> {
+impl<T: PrimInt + std::convert::From<u8>> Memory<T> {
     /**
     Returns the memory with given size
 
@@ -15,35 +17,35 @@ impl Memory<u8> {
     */
     pub fn new(size_b: usize) -> Self {
         Self {
-            mem: vec![0; size_b],
+            mem: vec![T::zero(); size_b],
         }
     }
 }
 
 // overloading [] for read access
-impl std::ops::Index<u16> for Memory<u8> {
-    type Output = u8;
+impl<T: PrimInt + std::convert::From<u8>> std::ops::Index<u16> for Memory<T> {
+    type Output = T;
 
-    fn index(&self, index: u16) -> &u8 {
+    fn index(&self, index: u16) -> &T {
         return {
-            if index > 0 && index < self.mem.len() as u16 {
+            if index < self.mem.len() as u16 {
                 let opt = self.mem.get(index as usize);
                 match opt {
                     Some(val) => val,
-                    None => &0,
+                    None => panic!("Invalid Read Address"),
                 }
             } else {
-                &0
+                panic!("Invalid Read Address")
             }
         };
     }
 }
 
 // overloading [] for read/write access
-impl std::ops::IndexMut<u16> for Memory<u8> {
+impl<T: PrimInt + std::convert::From<u8>> std::ops::IndexMut<u16> for Memory<T> {
     fn index_mut(&mut self, index: u16) -> &mut Self::Output {
         return {
-            if index > 0 && index < self.mem.len() as u16 {
+            if index < self.mem.len() as u16 {
                 self.mem.get_mut(index as usize).unwrap()
             } else {
                 panic!("Invalid write Address"); 
@@ -54,7 +56,7 @@ impl std::ops::IndexMut<u16> for Memory<u8> {
 }
 
 // helper functions
-impl Memory<u8> {
+impl<T: PrimInt + std::convert::From<u8>> Memory<T> {
     pub fn len(&self) -> usize {
         self.mem.len()
     }

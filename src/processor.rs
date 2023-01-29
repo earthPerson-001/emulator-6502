@@ -1,5 +1,6 @@
 use crate::bus::Bus;
 use crate::memory::Memory;
+use crate::rom::Rom;
 
 // Status bits
 // representing the number of left shift required to get the bit from 0x01
@@ -40,7 +41,7 @@ const FIXED_READING_ADDRESS_FOR_NMI: u16 = 0xFFFA;
 * i.e. $LLHH
 */
 pub struct Processor {
-    bus: Bus<u8>,
+    pub bus: Bus<u8>,
 
     // Instruction set
     instructions: Vec<Instruction>,
@@ -82,7 +83,7 @@ impl Default for Processor {
     */
     fn default() -> Self {
         Self {
-            bus: Bus::new(Memory::new(RAM), vec![0; OTHER], vec![0; ROM]),
+            bus: Bus::new(Memory::new(RAM), vec![0; OTHER], Rom::new(ROM)),
             instructions: Instruction::create_instructions_table(),
             accumulator: 0x00,
             index_register_x: 0x00,
@@ -111,6 +112,13 @@ impl Processor {
         Self {
             ..Default::default()
         }
+    }
+}
+
+// load rom implementation
+impl Processor {
+    pub fn load_rom(&mut self, filepath: &str) -> bool {
+        self.bus.load_rom(filepath)
     }
 }
 
@@ -422,7 +430,7 @@ impl Processor {
 // typical fetch, decode, execute cycle
 impl Processor {
 
-    fn clock(&mut self) {
+    pub fn clock(&mut self) {
         /*
             The instruction set is stored in such a way that it's index corresponds to the opcode.
             Since, hex and decimal number are equivalent,
@@ -463,6 +471,9 @@ impl Processor {
             self.set_u(true);
         }
 
+        if self.cycles == 0 {
+            return;
+        }
         // decrementing the required cycle for the currently running instruction
         // as one cycle has passed
         self.cycles -= 1;
