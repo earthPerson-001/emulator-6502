@@ -1,0 +1,31 @@
+.InitializePage {
+    display: flexbox;
+    justify-items: center;
+    font-size: 1.2em;
+}
+
+.BoundingBox {
+    display: flex;
+    flex-direction: column;
+    background-color: rgb(8, 82, 45);
+    height: 50vh;
+    aspect-ratio: 19/10;
+    align-items: center;
+    font: inherit;
+    justify-content: center;
+}
+
+.ProcessorDropdown {
+    margin-top: 0.5em;
+    font: inherit;
+}
+
+.InitializeProcessorButton {
+    margin-top: 0.5em;
+    font: inherit;
+}
+
+.ProcessorLoadStatus {
+    margin-top: 0.5em;
+    font: inherit;
+}

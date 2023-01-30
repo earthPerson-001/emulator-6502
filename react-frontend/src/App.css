@@ -1,0 +1,41 @@
+.App {
+    display: flex;
+    flex-direction: column;
+    height: vh;
+}
+
+.TabSelector {
+    margin-top: 0.5em;
+    display: flex;
+    width: 100%;
+    height: 1%;
+    flex-direction: row;
+    justify-content: center;
+}
+
+.TabButton {
+    display: flex;
+    width: 10em;
+    margin-right: 2em;
+    justify-content: center;
+}
+
+/* Just a palce holder for now */
+.TabButton:hover {
+    color: white;
+    background-color: black;
+}
+
+.Tab {
+    display: flex;
+    width: 100%;
+    height: 99%;
+}
+
+.DivCenter {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin-right: -50%;
+  transform: translate(-50%, -50%);
+}
