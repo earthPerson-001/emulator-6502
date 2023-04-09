@@ -1,0 +1,8 @@
+.LoadRomPage {
+    display: flex;
+    justify-content: space-between;
+}
+
+.LoadRomPage button {
+    margin-top: 1em;
+}

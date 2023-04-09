@@ -1,6 +1,6 @@
 import React, {useState} from 'react';
 import '../styles/InitializePage.css';
-import {create_processor as create_6502_processor} from 'wasm-6502';;
+import {createProcessor as create6502Processor} from 'wasm-6502';;
 
 function Initialize(): JSX.Element {
 
@@ -13,7 +13,7 @@ function Initialize(): JSX.Element {
         switch (id) {
             case '6502': {
                 if (!processorLoaded){
-                    create_6502_processor();
+                    create6502Processor();
                     setProcessorLoaded(true);
                 }
                 return true;

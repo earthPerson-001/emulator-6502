@@ -22,9 +22,9 @@ function App() {
 
    const tabButtons: JSX.Element[] = pageNumbers.map((pageNumber) => {
       // change the selected tab button color
-      let button_style = (pageNumber===tabNumber) ? {backgroundColor: "green"} : {};
+      let button_style = (pageNumber === tabNumber) ? { backgroundColor: "green" } : {};
 
-      return (<button key={pageNumber} className='TabButton' style={button_style}  onClick={(_) => { setTabNumber(pageNumber) }}>
+      return (<button key={pageNumber} className='TabButton' style={button_style} onClick={(_) => { setTabNumber(pageNumber) }}>
          {pages[pageNumber]}
       </button>)
    }

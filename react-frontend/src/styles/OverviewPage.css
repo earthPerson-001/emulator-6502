@@ -1,0 +1,77 @@
+.OverviewTab {
+    display: flex;
+    flex-direction: column;
+    margin-left: 0;
+    height: 90vh;
+    word-wrap: break-word;
+
+    --overview-page-storages-aspect-ratio: 1/1;
+    --overview-page-table-height: 60vh;
+}
+
+.ProcessorSpecificFunctions {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+}
+
+.ProcessorStatusOverview {
+    background-color: rgb(116, 194, 214);
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-content: center;
+    width: 80vh;
+    align-self: center;
+}
+
+.ProcessorStatusOverview Label {
+    width: 2em;
+    text-align: center;
+}
+
+.TickClockButton {
+    align-self: center;
+}
+
+.Storages {
+    display: flex;
+    flex-direction: row;
+    margin-top: 1em;
+}
+
+.RamOverview {
+    background-color: aqua;
+    margin-left: 2em;
+    margin-right: auto;
+    height: var(--overview-page-table-height);
+    aspect-ratio: var(--overview-page-storages-aspect-ratio)
+}
+
+.RomOverview {
+    background-color: aquamarine;
+    margin-right: 2em;
+    margin-left: auto;
+    height: var(--overview-page-table-height);
+    aspect-ratio: var(--overview-page-storages-aspect-ratio)
+}
+
+.RomOverviewTable {
+    overflow-y: scroll;
+    border-collapse: collapse;
+    height: var(--overview-page-storages-aspect-ratio);
+}
+
+.RomOverviewTable tr:nth-child(n + 17) {
+    display: none;
+}
+
+.RamOverviewTable {
+    overflow-y: scroll;
+    border-collapse: collapse;
+    height: var(--overview-page-storages-aspect-ratio);
+}
+
+.RamOverviewTable tr:nth-child(n + 17) {
+    display: none;
+}
