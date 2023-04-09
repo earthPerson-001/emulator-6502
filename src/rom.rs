@@ -3,6 +3,9 @@ use std::fs::File;
 
 use num::traits::int::PrimInt;
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Deserialize, Serialize)]
 pub struct Rom<T: PrimInt + std::convert::From<u8>> {
     pub rom: Vec<T>,
 }
@@ -21,6 +24,14 @@ impl<T: PrimInt + std::convert::From<u8>> Rom<T> {
     pub fn new(size_b: usize) -> Self {
         Self {
             rom: vec![T::zero(); size_b],
+        }
+    }
+}
+
+impl<T: PrimInt + std::convert::From<u8>> From<Vec<T>> for Rom<T> {
+    fn from(vector: Vec<T>) -> Self {
+        Self {
+            rom: vector,
         }
     }
 }
@@ -75,13 +86,12 @@ impl<T: PrimInt + std::convert::From<u8>> Rom<T> {
     }
 }
 
-
 // overloading [] for read/write access
 impl<T: PrimInt + std::convert::From<u8>> std::ops::IndexMut<u16> for Rom<T> {
 
     fn index_mut(&mut self, index: u16) -> &mut T {
         return {
-            if index > 0 && index < self.rom.len() as u16 {
+            if index < self.rom.len() as u16 {
                 self.rom.get_mut(index as usize).unwrap()
             } else {
                 panic!("Invalid write Address"); 

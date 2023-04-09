@@ -9,7 +9,7 @@ use crate::rom::Rom;
  * Read and write operation should take place from here
  */
 pub struct Bus<T: PrimInt + std::convert::From<u8>> {
-    memory: Memory<T>, // RAM
+    pub memory: Memory<T>, // RAM
     other: Vec<T>, // Other storages or devices
     pub secondary_storage: Rom<T>, // ROM 
 }

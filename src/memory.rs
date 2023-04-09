@@ -1,5 +1,8 @@
 use num::traits::int::PrimInt;
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
 pub struct Memory<T: PrimInt + std::convert::From<u8>> {
     mem: Vec<T>,
 }

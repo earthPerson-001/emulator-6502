@@ -50,7 +50,7 @@ pub struct Processor {
     accumulator: u8,
     index_register_x: u8,
     index_register_y: u8,
-    status: u8,
+    pub status: u8,
     /// To be consistent across the implementations
     /// `stack_pointer` should always point to the empty location
     /// * i.e to get the last item, `stack_pointer` should be incremented before reading
