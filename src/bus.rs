@@ -10,7 +10,7 @@ use crate::rom::Rom;
  */
 pub struct Bus<T: PrimInt + std::convert::From<u8>> {
     pub memory: Memory<T>, // RAM
-    other: Vec<T>, // Other storages or devices
+    pub other: Vec<T>, // Other storages or devices
     pub secondary_storage: Rom<T>, // ROM 
 }
 
