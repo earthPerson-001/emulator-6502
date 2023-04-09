@@ -1,19 +1,24 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import '../styles/OverviewPage.css';
-import { tickClock, getRom, getRam, getProcessorStatus } from 'wasm-6502'
+import { tickClock, getRom, getRam, getProcessorStatus, getStorageLayout } from 'wasm-6502'
 
 function OverviewPage() {
     let [ram, setRam] = useState<[number] | null>(JSON.parse(getRam()).mem);
     let [rom, setRom] = useState<[number] | null>(JSON.parse(getRom()).rom);
 
-    let [ramSize, setRamSize] = useState<number | null>(ram?.length ? ram.length : null);
-    let [romSize, setRomSize] = useState<number | null>(rom?.length ? rom.length : null)
+    let storageLayoutObject: Object | null = JSON.parse(getStorageLayout()) ? JSON.parse(getStorageLayout()) : null
+    let [storageLayout, setStorageLayout] = useState<Map<string, number[]> | null>(storageLayoutObject ? (new Map(Object.entries(storageLayoutObject))) : new Map());
+    let validStorageRom = storageLayout?.get("secondary_storage");
+    let [romStartAndEnd, setRomstartAndEnd] = useState<Array<number> | null>(validStorageRom ? validStorageRom : null);
 
-    // current section of ram
+
+    // current section of ram and rom
     let [currentRamSection, setCurrentRamSection] = useState<number>(0)
-
-    // current section of rom
     let [currentRomSection, setCurrentRomSection] = useState<number>(0)
+
+    // max section of ram and rom
+    let [maxRamSection, setMaxRamSection] = useState<number | null>(ram?.length ? Math.floor(ram.length / 64) : null)
+    let [maxRomSection, setMaxRomSection] = useState<number | null>(rom?.length ? Math.floor(rom.length / 64) : null)
 
 
     // table columns
@@ -36,22 +41,28 @@ function OverviewPage() {
 
     function increment_clock() {
         tickClock();
+
         setRam(JSON.parse(getRam()).mem);
         setRom(JSON.parse(getRom()).rom);
 
+        let storageLayoutObject: Object | null = JSON.parse(getStorageLayout()) ? JSON.parse(getStorageLayout()) : null
+        setStorageLayout(storageLayoutObject ? (new Map(Object.entries(storageLayoutObject))) : new Map());
+        let validStorageRom = storageLayout?.get("secondary_storage");
+        setRomstartAndEnd(validStorageRom ? validStorageRom : null);
+
         let status: number = JSON.parse(getProcessorStatus());
-        setCarryFlag((status & (1 << 0)) === (1 << 0))
-        setZeroFlag((status & (1 << 1)) === (1 << 1))
-        setInterruptDisableFlag((status & (1 << 2)) === (1 << 2))
-        setDecimalFlag((status & (1 << 3)) === (1 << 3))
-        setBreakFlag((status & (1 << 4)) === (1 << 4))
-        setUnusedFlag((status & (1 << 5)) === (1 << 5))
-        setOverflowFlag((status & (1 << 6)) === (1 << 6))
-        setNegativeFlag((status & (1 << 7)) === (1 << 7))
+        setCarryFlag((status & (1 << 0)) === (1 << 0));
+        setZeroFlag((status & (1 << 1)) === (1 << 1));
+        setInterruptDisableFlag((status & (1 << 2)) === (1 << 2));
+        setDecimalFlag((status & (1 << 3)) === (1 << 3));
+        setBreakFlag((status & (1 << 4)) === (1 << 4));
+        setUnusedFlag((status & (1 << 5)) === (1 << 5));
+        setOverflowFlag((status & (1 << 6)) === (1 << 6));
+        setNegativeFlag((status & (1 << 7)) === (1 << 7));
     }
 
     let statusArray = [carryFlag, zeroFlag, interruptDisableFlag, decimalFlag, breakFlag, unusedFlag, overflowFlag, negativeFlag]
-    const statusPneumonics = ["C", "Z", "I", "D", "B", "U", "O", "N"];
+        const statusPneumonics = ["C", "Z", "I", "D", "B", "U", "O", "N"];
 
     let [ramArray, setRamArray] = useState<number[][]>();
     function updateRamArray() {
@@ -65,6 +76,39 @@ function OverviewPage() {
         }
 
         setRamArray(_ramArray);
+        if (maxSize) { setMaxRamSection(Math.floor(maxSize/256) - 1);}  // 0 to len - 1
+    }
+
+    /**
+     * Wrapping withing the allowed sections
+     * @param section The section to set
+     */
+    function setCurrentRamSectionWithFilter(section: number) {
+        if (section < 0) {
+            setCurrentRamSection(0);
+        }
+        else if ( maxRamSection && section > maxRamSection ) {
+            setCurrentRamSection(maxRamSection);
+        }
+        else {
+            setCurrentRamSection(section);
+        }
+    }
+
+    /**
+     * Wrapping withing the allowed sections
+     * @param section The section to set
+     */
+    function setCurrentRomSectionWithFilter(section: number) {
+        if (section < 0) {
+            setCurrentRomSection(0);
+        }
+        else if ( maxRomSection && section > maxRomSection ) {
+            setCurrentRomSection(maxRomSection);
+        }
+        else {
+            setCurrentRomSection(section);
+        }
     }
 
     const updateRamArrayCallback = useCallback(updateRamArray, [ram]);
@@ -81,6 +125,7 @@ function OverviewPage() {
         }
 
         setRomArray(_romArray);
+        if (maxSize) { setMaxRomSection(Math.floor(maxSize/256) - 1);}  // 0 to len - 1
     }
 
     useEffect(() => {
@@ -90,7 +135,7 @@ function OverviewPage() {
     useEffect(() => {
         updateRomArrayCallback()
     }, [rom, updateRomArrayCallback])
-    
+
 
     // on scrolling rom
     function onRomScroll(e: React.UIEvent<HTMLDivElement, UIEvent>) {
@@ -126,7 +171,7 @@ function OverviewPage() {
             <section className="Storages">
                 <div className='RomOverview' onScroll={onRomScroll} style={{ display: "flex", flexDirection: "column" }}>
                     <table className='RomOverviewTable'>
-                        <thead>
+                        <thead className='TableHead'>
                             <tr>
                                 {
                                     columnNames.map((value, index) => (
@@ -137,24 +182,27 @@ function OverviewPage() {
                                 }
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody className='TableBody'>
                             {
                                 romArray?.slice(currentRomSection * 16, currentRomSection * 16 + 17)?.map((value, index) => (
                                     <tr key={index}>
                                         <td key={0}>
-                                            {(index + currentRomSection *16).toString(16).padStart(3,'0')}
+                                            {((romStartAndEnd?.at(0) ? romStartAndEnd[0] : 0) + index + currentRomSection * 16).toString(16).padStart(3, '0')}
                                         </td>
-                                        {value.map((val, index) => <td key={index + 1}>{val.toString(16).padStart(2,'0')} </td>)}
+                                        {value.map((val, index) => <td style={{opacity: (val + 1)/2}} key={index + 1}>{val.toString(16).padStart(2, '0')} </td>)}
                                     </tr>
                                 ))
                             }
                         </tbody>
                     </table>
-
+                    <div className='PreviousAndNextButtons'>
+                        <button onClick={(_) => {setCurrentRomSectionWithFilter(currentRomSection - 1)}}>Previous</button>
+                        <button onClick={(_) => {setCurrentRomSectionWithFilter(currentRomSection + 1)}}>Next</button>
+                    </div>
                 </div>
                 <div className='RamOverview' onScroll={onRamScroll} style={{ display: "flex", flexDirection: "column" }}>
-                <table className='RamOverviewTable'>
-                        <thead>
+                    <table className='RamOverviewTable'>
+                        <thead className='TableHead'>
                             <tr>
                                 {
                                     columnNames.map((value, index) => (
@@ -165,19 +213,23 @@ function OverviewPage() {
                                 }
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody className='TableBody'>
                             {
                                 ramArray?.slice(currentRamSection * 16, currentRamSection * 16 + 17)?.map((value, index) => (
                                     <tr key={index}>
                                         <td key={0}>
-                                            {(index + currentRamSection * 16).toString(16).padStart(3,'0')}
+                                            {(index + currentRamSection * 16).toString(16).padStart(3, '0')}
                                         </td>
-                                        {value.map((val, index) => <td key={index + 1}>{val.toString(16).padStart(2,'0')} </td>)}
+                                        {value.map((val, index) => <td key={index + 1} style={{opacity: (val + 1)/2}}>{val.toString(16).padStart(2, '0')} </td>)}
                                     </tr>
                                 ))
                             }
                         </tbody>
                     </table>
+                    <div className='PreviousAndNextButtons'>
+                        <button onClick={(_) => {setCurrentRamSectionWithFilter(currentRamSection - 1)}}>Previous</button>
+                        <button onClick={(_) => {setCurrentRamSectionWithFilter(currentRamSection + 1)}}>Next</button>
+                    </div>
                 </div>
             </section>
 
