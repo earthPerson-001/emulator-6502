@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import '../styles/LoadRomPage.css';
-import { loadRom } from 'wasm-6502';
+import { loadRom, getDefaultProgramCounter } from 'wasm-6502';
 
 function checkText(e: React.ChangeEvent<HTMLTextAreaElement>): boolean {
 
@@ -20,6 +20,8 @@ function checkText(e: React.ChangeEvent<HTMLTextAreaElement>): boolean {
 function LoadRomPage(): JSX.Element {
     let [textBoxValue, setTextBoxValue] = useState<string>("");
 
+    let DEFAULT_PROGRAM_COUNTER_LOCATION = getDefaultProgramCounter();  
+
     function onTextBoxChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
         if (checkText(e)) {
             setTextBoxValue(e.currentTarget.value);
@@ -33,7 +35,7 @@ function LoadRomPage(): JSX.Element {
     return (
         <div className='DivCenter BoundingBox LoadRomPage'>
             <textarea className='TextArea' cols={30} rows={10} value={textBoxValue ? textBoxValue : 0} onChange={onTextBoxChange} />
-            <button className='LoadRomButton' onClick={(_) => loadRom(textBoxValue)} > Load ROM</button>
+            <button className='LoadRomButton' onClick={(_) => loadRom(textBoxValue, DEFAULT_PROGRAM_COUNTER_LOCATION)} > Load ROM </button>
 
             <button onClick={(_) => clickFileInput()}>Upload from file</button>
             <input id="give-rom-file-input" type="file" name="name" style={{display: "none"}} />
