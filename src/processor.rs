@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::bus::Bus;
 use crate::memory::Memory;
 use crate::rom::Rom;
@@ -19,21 +21,29 @@ const KB: usize = 1024;
 
 // memory
 const RAM: usize = 16 * KB; // 16 KB RAM    (0 - 16 * 1024-1) ( 0x0000 - 0x3FFF)
-const STACK_ADDRESS_RANGE: (u16, u16) = (0x0100, 0x01FF);
+pub const STACK_ADDRESS_RANGE: (u16, u16) = (0x0100, 0x01FF);
 
 const OTHER: usize = 16 * KB; // 16 KB other addressed (like 16KB, but the addresses might be other devices) (16* 1024 - 32 * 1024) (0x4000 - 0x7FFF)
 const ROM: usize = 32 * KB; // 32 KB ROM (32 * 1024 - 64 * 1024) (0x8000 - 0xFFFF)
 
-// Initial address of program counter
-const INITIAL_PROGRAM_COUNTER_ADDRESS: u16 = 0xFFFC;    // 0xFFFC and 0xFFFD are the addresses for initial program counter
+/// The location for storing the value of program counter to be used after reset
+const INITIAL_PROGRAM_COUNTER_ADDRESS: u16 = 0xFFFC;    // 0xFFFC and 0xFFFD are the addresses where initial program counters are stored
+                                                        // which is used as program counter after reset for initial program counter
+
+/// Default program counter address
+/// This should be read incase of ROM is written
+pub const INITIAL_PROGRAM_COUNTER: u16 = 0x8000;
+
 
 // Fixed address to read from when interrupt/ break occurs
 
 /// valid for breaks and irq
 const FIXED_READING_ADDRESS_FOR_BRK_AND_IRQ: u16 = 0xFFFE;     // 0xFFFE and 0xFFFF are the address when break or interrupt occurs
 
+#[allow(dead_code)]
 /// valid for nmi
 const FIXED_READING_ADDRESS_FOR_NMI: u16 = 0xFFFA;
+
 
 // 6502
 /**
@@ -56,7 +66,7 @@ pub struct Processor {
     /// * i.e to get the last item, `stack_pointer` should be incremented before reading
     /// * and to add a item, `stack_pointer` should be decremented after writing 
     stack_pointer: u8,
-    program_counter: u16,
+    pub program_counter: u16,
 
     // some variables for implementing adressing mode and opcodes
     fetched: u8,
@@ -90,7 +100,7 @@ impl Default for Processor {
             index_register_y: 0x00,
             status: 0x00,
             stack_pointer: 0x00,
-            program_counter: 0x0000,
+            program_counter: INITIAL_PROGRAM_COUNTER,
 
             fetched: 0x00,
             temp: 0x00,
@@ -108,17 +118,40 @@ impl Default for Processor {
 // Constructor like implementation
 // using default values
 impl Processor {
-    pub fn new() -> Self {
-        Self {
-            ..Default::default()
+    fn new(program_counter: Option<u16>) -> Self {
+        match program_counter {
+            Some(pc) => Self {
+                program_counter: pc,
+                ..Default::default()
+            },
+            None => Self {
+                ..Default::default()
+            },
+        }  
+    }
+
+    /**
+     * Creates new processor and setup the program counter to given program counter
+     * Also setup the reset vector to given program counter
+     */
+    pub fn new_setup(program_counter: Option<u16>) -> Self {
+        let mut proc = Processor::new(program_counter);
+
+        match program_counter{
+            Some(pc) => {
+                proc.bus.write(INITIAL_PROGRAM_COUNTER_ADDRESS, (pc & 0xFF) as u8);  // low address
+                proc.bus.write(INITIAL_PROGRAM_COUNTER_ADDRESS + 1, (pc < 0xFF00) as u8 );  // high address
+                proc
+            },
+            None => proc,
         }
     }
 }
 
 // load rom implementation
 impl Processor {
-    pub fn load_rom(&mut self, filepath: &str) -> bool {
-        self.bus.load_rom(filepath)
+    pub fn load_rom(&mut self, filepath: &str, start_location: &u16) -> bool {
+        self.bus.load_rom(filepath, start_location)
     }
 }
 
@@ -374,6 +407,7 @@ impl Processor {
 // Interrupts implementations 
 impl Processor {
 
+    #[allow(dead_code)]
     // can be ignored
     fn irq(&mut self) {
         // if interrupts are allowed // it might not be allowed when interrupt is ongoing
@@ -401,6 +435,7 @@ impl Processor {
         }
     }
 
+    #[allow(dead_code)]
     // cannot be ignored
     fn nmi(&mut self) {
         // pushing the current program counter to stack
@@ -1594,6 +1629,122 @@ impl Processor {
         true
     }
 }
+
+impl Processor {
+    /**
+     * Returns the mapping of instruction address to the human readable code.
+     * Either up to 0xFFFF or `n_instructions` instructions whichever finished first
+     */
+    pub fn disassembly(&self, start_addr: &u16, n_instructions: &u16) -> BTreeMap<u16, std::string::String> {
+        let mut addr_to_readable: BTreeMap<u16, std::string::String> = BTreeMap::new();
+        
+        // end_addr might overflow on u16
+        let mut i_addr: u32 = start_addr.to_owned() as u32;
+        let end_addr_abs: u32 = (self.bus.memory.len() + self.bus.other.len() + self.bus.secondary_storage.len() - 1) as u32;
+
+        let mut n_lines = 0;
+        while i_addr <= end_addr_abs && (&n_lines < n_instructions) {
+            // for mapping the single instruction
+            let cur_addr: u32 = i_addr;
+
+            // for low and high bytes. p.s. LLHH in memory
+            let low_byte: u8 ;
+            let high_byte: u16 ;  // u16 because it might overflow
+
+            // for immediate values
+            let value: u8 ;
+
+            // The address
+            let mut human_readable = format!("${:04X?}: ", i_addr);
+
+            // Human readable name
+            let opcode: u8 = self.bus.read(i_addr as u16);
+            i_addr += 1;
+
+            let instr = self.instructions.get(opcode as usize).unwrap();
+            human_readable.push_str((instr.name.to_owned() + " ").as_str());
+
+            match instr.addressing_mode_enum {
+                AddressingMode::ABS => {
+                    low_byte = self.bus.read(i_addr as u16); 
+                    i_addr += 1;
+                    high_byte = self.bus.read(i_addr as u16) as u16;
+                    i_addr += 1;
+                    human_readable.push_str(&format!("${:04X} {{ABS}}", high_byte << 8 | low_byte as u16));
+                },
+                AddressingMode::ABSX => {
+                    low_byte = self.bus.read(i_addr as u16); 
+                    i_addr += 1;
+                    high_byte = self.bus.read(i_addr as u16) as u16;
+                    i_addr += 1;
+                    human_readable.push_str(&format!("${:04X}, X {{ABSX}}", high_byte << 8 | low_byte as u16));
+                
+                },
+                AddressingMode::ABSY => {
+                    low_byte = self.bus.read(i_addr as u16); 
+                    i_addr += 1;
+                    high_byte = self.bus.read(i_addr as u16) as u16;
+                    i_addr += 1;
+                    human_readable.push_str(&format!("${:04X}, Y {{ABSY}}", (high_byte << 8) | low_byte as u16));
+                
+                },
+                AddressingMode::ZPG => {
+                    low_byte = self.bus.read(i_addr as u16);
+                    i_addr += 1;
+                    human_readable.push_str(&format!("${:04X} {{ZPG}}", low_byte));
+                },
+                AddressingMode::ZPGX => {
+                    low_byte = self.bus.read(i_addr as u16);
+                    i_addr += 1;
+                    human_readable.push_str(&format!("${:04X}, X {{ZPGX}}", low_byte));
+                },
+                AddressingMode::ZPGY => {
+                    low_byte = self.bus.read(i_addr as u16);
+                    i_addr += 1;
+                    human_readable.push_str(&format!("${:04X}, Y {{ZPGY}}", low_byte));
+                },
+                AddressingMode::IND => {
+                    low_byte = self.bus.read(i_addr as u16);
+                    i_addr += 1;
+                    high_byte = self.bus.read(i_addr as u16) as u16;
+                    i_addr += 1;
+                    human_readable.push_str(&format!("(${:04X}) {{IND}}", (high_byte << 8) | low_byte as u16));
+                },
+                AddressingMode::INDX => {
+                    low_byte = self.bus.read(i_addr as u16);
+                    i_addr += 1;
+                    human_readable.push_str(&format!("(${:04X}, X) {{INDX}}", low_byte));
+                
+                },
+                AddressingMode::INDY => {
+                    low_byte = self.bus.read(i_addr as u16);
+                    i_addr += 1;
+                    human_readable.push_str(&format!("(${:04X}, Y) {{INDY}}", low_byte));
+                },
+                AddressingMode::IMPL => {
+                    human_readable.push_str(&format!(" {{IMP}}"));
+                },
+                AddressingMode::REL => {
+                    value = self.bus.read(i_addr as u16);
+                    i_addr  += 1;
+                    human_readable.push_str(&format!("${} [${:04X}] {{REL}}", value as i8, (i_addr as i32) + (value as i8) as i32));
+                },
+                AddressingMode::IMM => {
+                    value = self.bus.read(i_addr as u16);
+                    i_addr += 1;
+                    human_readable.push_str(&format!("#${:02X} {{IMM}}", value));
+                },
+            }
+
+            addr_to_readable.insert((cur_addr & 0xffff) as u16, human_readable);
+            n_lines += 1;
+        }
+
+        return addr_to_readable;
+    }
+}
+
+
 pub struct Instruction {
     pub name: String,
     pub human_readable_form: String,
@@ -1913,7 +2064,7 @@ mod tests {
      */
     #[test]
     fn get_status() {
-        let mut test_processor = Processor::new();
+        let mut test_processor = Processor::new(None);
         test_processor.reset();
 
         // testing with values from 0 to 255
@@ -1937,7 +2088,7 @@ mod tests {
      */
     #[test]
     fn set_status() {
-        let mut test_processor = Processor::new();
+        let mut test_processor = Processor::new(None);
         test_processor.reset();
 
         let boolean_values = [true, false];
