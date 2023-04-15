@@ -1,15 +1,18 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import '../styles/OverviewPage.css';
-import { tickClock, getRom, getRam, getProcessorStatus, getStorageLayout } from 'wasm-6502'
+import { tickClock, getRom, getRam, getProcessorStatus, getStorageLayout, getStack} from 'wasm-6502'
 
 function OverviewPage() {
-    let [ram, setRam] = useState<[number] | null>(JSON.parse(getRam()).mem);
-    let [rom, setRom] = useState<[number] | null>(JSON.parse(getRom()).rom);
+    let [ram, setRam] = useState<[number] | null>();
+    let [rom, setRom] = useState<[number] | null>();
+    let [stack, setStack] = useState<[number] | null>();
 
     let storageLayoutObject: Object | null = JSON.parse(getStorageLayout()) ? JSON.parse(getStorageLayout()) : null
     let [storageLayout, setStorageLayout] = useState<Map<string, number[]> | null>(storageLayoutObject ? (new Map(Object.entries(storageLayoutObject))) : new Map());
     let validStorageRom = storageLayout?.get("secondary_storage");
     let [romStartAndEnd, setRomstartAndEnd] = useState<Array<number> | null>(validStorageRom ? validStorageRom : null);
+    let validStack = storageLayout?.get("stack");
+    let [stackStartEnd, setStackStartEnd] = useState<Array<number> | null>(validStack ? validStack : null)
 
 
     // current section of ram and rom
@@ -44,11 +47,14 @@ function OverviewPage() {
 
         setRam(JSON.parse(getRam()).mem);
         setRom(JSON.parse(getRom()).rom);
+        setStack(JSON.parse(getStack()));
 
         let storageLayoutObject: Object | null = JSON.parse(getStorageLayout()) ? JSON.parse(getStorageLayout()) : null
         setStorageLayout(storageLayoutObject ? (new Map(Object.entries(storageLayoutObject))) : new Map());
         let validStorageRom = storageLayout?.get("secondary_storage");
         setRomstartAndEnd(validStorageRom ? validStorageRom : null);
+        let validStack = storageLayout?.get("stack");
+        setStackStartEnd(validStack ? validStack : null);
 
         let status: number = JSON.parse(getProcessorStatus());
         setCarryFlag((status & (1 << 0)) === (1 << 0));
@@ -64,7 +70,7 @@ function OverviewPage() {
     let statusArray = [carryFlag, zeroFlag, interruptDisableFlag, decimalFlag, breakFlag, unusedFlag, overflowFlag, negativeFlag]
         const statusPneumonics = ["C", "Z", "I", "D", "B", "U", "O", "N"];
 
-    let [ramArray, setRamArray] = useState<number[][]>();
+    let [ramArray, setRamArray] = useState<number[][] | undefined>();
     function updateRamArray() {
 
         let _ramArray = [];
@@ -114,7 +120,7 @@ function OverviewPage() {
     const updateRamArrayCallback = useCallback(updateRamArray, [ram]);
     const updateRomArrayCallback = useCallback(updateRomArray, [rom]);
 
-    let [romArray, setRomArray] = useState<number[][]>();
+    let [romArray, setRomArray] = useState<number[][] | undefined>();
     function updateRomArray() {
 
         let _romArray = [];
@@ -167,8 +173,55 @@ function OverviewPage() {
 
                 <button className='TickClockButton' onClick={increment_clock}>Tick Clock</button>
             </div>
-
             <section className="Storages">
+            {ramArray ? 
+            <div className='RamOverview' onScroll={onRamScroll} style={{ display: "flex", flexDirection: "column" }}>
+                    <table className='RamOverviewTable'>
+                        <thead className='TableHead'>
+                            <tr>
+                                {
+                                    columnNames.map((value, index) => (
+                                        <th key={index}>
+                                            {value}
+                                        </th>
+                                    ))
+                                }
+                            </tr>
+                        </thead>
+                        <tbody className='TableBody'>
+                            {
+                                ramArray?.slice(currentRamSection * 16, currentRamSection * 16 + 16)?.map((value, index) => (
+                                    <tr key={index}>
+                                        <td key={0}>
+                                            {(index + currentRamSection * 16).toString(16).padStart(4, '0')}
+                                        </td>
+                                        {value.map((val, index) => <td key={index + 1} style={{opacity: (val + 1)/2}}>{val.toString(16).padStart(2, '0')} </td>)}
+                                    </tr>
+                                ))
+                            }
+                        </tbody>
+                    </table>
+                    <div className='PreviousAndNextButtons'>
+                        <button onClick={(_) => {setCurrentRamSectionWithFilter(currentRamSection - 1)}}>Previous</button>
+                        <label>RAM {ram ? (`Size:  ${ram?.length  / 1024}KB`) :"" }</label>
+                        <button onClick={(_) => {setCurrentRamSectionWithFilter(currentRamSection + 1)}}>Next</button>
+                    </div>
+                </div> : <div></div> }
+                {(stack && stackStartEnd) ? 
+                <div className='StackOverview' style={{display: 'flex', flexDirection: 'column'}}>
+                    <label className='StackOverviewHeader'>Stack Contents</label>
+                    <div className="StackContents" style={{display: 'flex', flexDirection: 'column'}}>
+                        {
+                            stack.map((value, index) => (
+                                <div className="StackRow" key={index} style={{display: 'flex', flexDirection: 'row'}}>
+                                    <label className="StackIndex" style={{display: 'flex', alignSelf: 'flex-start', }}>{stackStartEnd ? (stackStartEnd[0] + index).toString(16).padStart(3, '0') : " "}</label>
+                                    <label className='StackByte' style={{display: 'flex', alignSelf: 'flex-end', }}>{value.toString(16).padStart(2, '0')}</label>
+                                </div>
+                            ))
+                        }
+                    </div>
+                </div> : <div></div>}
+                {romArray ? 
                 <div className='RomOverview' onScroll={onRomScroll} style={{ display: "flex", flexDirection: "column" }}>
                     <table className='RomOverviewTable'>
                         <thead className='TableHead'>
@@ -184,10 +237,10 @@ function OverviewPage() {
                         </thead>
                         <tbody className='TableBody'>
                             {
-                                romArray?.slice(currentRomSection * 16, currentRomSection * 16 + 17)?.map((value, index) => (
+                                romArray?.slice(currentRomSection * 16, currentRomSection * 16 + 16)?.map((value, index) => (
                                     <tr key={index}>
                                         <td key={0}>
-                                            {((romStartAndEnd?.at(0) ? romStartAndEnd[0] : 0) + index + currentRomSection * 16).toString(16).padStart(3, '0')}
+                                            {((romStartAndEnd?.at(0) ? romStartAndEnd[0] : 0) + index + currentRomSection * 16).toString(16).padStart(4, '0')}
                                         </td>
                                         {value.map((val, index) => <td style={{opacity: (val + 1)/2}} key={index + 1}>{val.toString(16).padStart(2, '0')} </td>)}
                                     </tr>
@@ -197,40 +250,10 @@ function OverviewPage() {
                     </table>
                     <div className='PreviousAndNextButtons'>
                         <button onClick={(_) => {setCurrentRomSectionWithFilter(currentRomSection - 1)}}>Previous</button>
+                        <label>ROM {rom ? (`Size:  ${rom?.length  / 1024}KB`) :"" }</label>
                         <button onClick={(_) => {setCurrentRomSectionWithFilter(currentRomSection + 1)}}>Next</button>
                     </div>
-                </div>
-                <div className='RamOverview' onScroll={onRamScroll} style={{ display: "flex", flexDirection: "column" }}>
-                    <table className='RamOverviewTable'>
-                        <thead className='TableHead'>
-                            <tr>
-                                {
-                                    columnNames.map((value, index) => (
-                                        <th key={index}>
-                                            {value}
-                                        </th>
-                                    ))
-                                }
-                            </tr>
-                        </thead>
-                        <tbody className='TableBody'>
-                            {
-                                ramArray?.slice(currentRamSection * 16, currentRamSection * 16 + 17)?.map((value, index) => (
-                                    <tr key={index}>
-                                        <td key={0}>
-                                            {(index + currentRamSection * 16).toString(16).padStart(3, '0')}
-                                        </td>
-                                        {value.map((val, index) => <td key={index + 1} style={{opacity: (val + 1)/2}}>{val.toString(16).padStart(2, '0')} </td>)}
-                                    </tr>
-                                ))
-                            }
-                        </tbody>
-                    </table>
-                    <div className='PreviousAndNextButtons'>
-                        <button onClick={(_) => {setCurrentRamSectionWithFilter(currentRamSection - 1)}}>Previous</button>
-                        <button onClick={(_) => {setCurrentRamSectionWithFilter(currentRamSection + 1)}}>Next</button>
-                    </div>
-                </div>
+                </div> : <div></div>}
             </section>
 
         </div>

@@ -6,7 +6,17 @@
     word-wrap: break-word;
 
     --overview-page-storages-aspect-ratio: 1/1;
-    --overview-page-table-height: 60vh;
+    --overview-page-table-height: 70vh;
+
+    --buttons-height: 2em;
+
+    --ram-rom-background-color: rgb(55, 123, 191); /* Just for debugging */
+
+    --ram-rom-tr-background-color-even: aqua;
+    --ram-rom-tr-background-color-odd: rgb(94, 204, 204);
+
+    --ram-rom-table-hover-color: rgba(171, 56, 27, 0.5);
+    --ram-rom-table-hover-element-color: rgba(171, 56, 27, 1);
 }
 
 .ProcessorSpecificFunctions {
@@ -41,43 +51,62 @@
 }
 
 .RamOverview {
-    background-color: aqua;
-    margin-left: 2em;
-    margin-right: auto;
-    height: var(--overview-page-table-height);
-    aspect-ratio: var(--overview-page-storages-aspect-ratio)
+    background-color: var(--ram-rom-background-color);
+    margin-right: 2em;
+    margin-left: auto;
+    height: var(--overview-page-table-height + --buttons-height);
+    aspect-ratio: var(--overview-page-storages-aspect-ratio);
 }
 
 .RomOverview {
-    background-color: aquamarine;
-    margin-right: 2em;
+    background-color: var(--ram-rom-background-color);
+    margin-left: 2em;
+    margin-right: auto;
+    height: var(--overview-page-table-height + --buttons-height);
+    aspect-ratio: var(--overview-page-storages-aspect-ratio);
+}
+
+.StackOverview {
+    background-color: var(--ram-rom-background-color);
     margin-left: auto;
+    margin-right: auto;
     height: var(--overview-page-table-height);
-    aspect-ratio: var(--overview-page-storages-aspect-ratio)
+    overflow: scroll;
+}
+
+.StackContents {
+    height: var(--overview-page-table-height);
+    overflow: scroll;
+} 
+
+.StackContents label {
+    border: 1px solid beige;
+    width: 50%;
 }
 
 .RomOverviewTable {
-    overflow-y: scroll;
-    height: var(--overview-page-storages-aspect-ratio);
-}
-
-.RomOverviewTable tr:nth-child(n + 17) {
-    display: none;
+    overflow: scroll;
+    height: var(--overview-page-table-height);
+    border: 1px solid black;
+    aspect-ratio: var(--overview-page-storages-aspect-ratio);
 }
 
 .RamOverviewTable {
-    overflow-y: scroll;
-    height: var(--overview-page-storages-aspect-ratio);
+    overflow: scroll;
+    height: var(--overview-page-table-height);
+    border: 1px solid black;
+    aspect-ratio: var(--overview-page-storages-aspect-ratio);
 }
 
-.RamOverviewTable tr:nth-child(n + 17) {
-    display: none;
+.RomOverviewTable tr, .RamOverviewTable tr {
+    height: 4px;
 }
 
 .PreviousAndNextButtons {
     display: flex;
     width: 100%;
     flex-direction: row;
+    align-content: space-between;
 }
 
 .PreviousAndNextButtons :first-child {
@@ -92,12 +121,35 @@
     margin-left: auto;
 }
 
-.TableHead {
+.TableHead, .StackOverviewHeader, .TableBody tr :first-child, .StackContents .StackIndex {
     background-color: black;
     color: aliceblue;
 }
 
-.TableBody tr :first-child {
-    background-color: black;
-    color: aliceblue;
+.TableBody :nth-child(odd) {
+    background-color: var(--ram-rom-tr-background-color-odd);
 }
+
+.TableBody :nth-child(even) {
+    background-color: var(--ram-rom-tr-background-color-even);
+}
+
+.TableBody tr:hover {
+    background-color: var(--ram-rom-table-hover-color);
+}
+
+.TableBody tr td:hover {
+    background-color: var(--ram-rom-table-hover-element-color);
+    cursor: none;
+}
+
+/* .RamOverview td:hover::after, .RamOverview th:hover::after, .RomOverview td:hover::after, .RomOverview th:hover::after { 
+    background-color: var(--ram-rom-table-hover-color);
+    content: '\00a0';
+    height: 10000px;    
+    left: 0;
+    position: absolute;  
+    top: -5000px;
+    width: 100%;
+    pointer-events: none;  
+ } */
