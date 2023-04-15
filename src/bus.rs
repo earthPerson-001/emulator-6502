@@ -61,7 +61,13 @@ impl<T: PrimInt + std::convert::From<u8>> Bus<T> {
 // load ROM implementation
 impl<T: PrimInt + std::convert::From<u8>> Bus<T> {
 
-    pub fn load_rom(&mut self, filepath: &str) -> bool {
-        self.secondary_storage.load(filepath)
+    pub fn load_rom(&mut self, filepath: &str, start_location: &u16) -> bool {
+        let start_location_absolute:i32 = *start_location as i32 - self.other.len() as i32 - self.memory.len() as i32;
+
+        if start_location_absolute < 0 {
+            return false;
+        }
+
+        self.secondary_storage.load(filepath, &(start_location_absolute as u16))
     }
 }

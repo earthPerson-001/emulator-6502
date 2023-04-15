@@ -51,10 +51,9 @@ impl<T: PrimInt + std::convert::From<u8>> std::ops::IndexMut<u16> for Memory<T> 
             if index < self.mem.len() as u16 {
                 self.mem.get_mut(index as usize).unwrap()
             } else {
-                panic!("Invalid write Address"); 
+                panic!("Invalid write Address");
             }
         };
-        
     }
 }
 
@@ -69,3 +68,24 @@ impl<T: PrimInt + std::convert::From<u8>> Memory<T> {
         self.len() == 0
     }
 }
+
+// overloading index range for slice access (immutable)
+impl<T: PrimInt + std::convert::From<u8>> std::ops::Index<std::ops::Range<u16>> for Memory<T> {
+    type Output = [T];
+
+    fn index(&self, index: std::ops::Range<u16>) -> &Self::Output {
+        let range_as_usize = index.start as usize..index.end as usize;
+        &self.mem[range_as_usize]
+    }
+}
+
+// overloading index range for slice access (immutable)
+impl<T: PrimInt + std::convert::From<u8>> std::ops::Index<std::ops::RangeInclusive<u16>> for Memory<T> {
+    type Output = [T];
+
+    fn index(&self, index: std::ops::RangeInclusive<u16>) -> &Self::Output {
+        let range_as_usize = index.start().to_owned() as usize..=index.end().to_owned() as usize;
+        &self.mem[range_as_usize]
+    }
+}
+

@@ -1,4 +1,4 @@
-use std::io::{BufReader, Read};
+use std::io::{BufReader, Read, ErrorKind};
 use std::fs::File;
 
 use num::traits::int::PrimInt;
@@ -58,27 +58,51 @@ impl<T: PrimInt + std::convert::From<u8>> std::ops::Index<u16> for Rom<T> {
 // loading data into Rom
 impl<T: PrimInt + std::convert::From<u8>> Rom<T> {
 
-    pub fn load(&mut self, filepath: &str) -> bool {
+    pub fn load(&mut self, filepath: &str, start_location: &u16) -> bool {
 
 
         let file = File::open(filepath);
 
+        let total_bytes_to_read: i32 = self.rom.len() as i32 - *start_location as i32;
+        
+        let buffer_length =  if total_bytes_to_read < 1 {
+            0
+        } else {
+            total_bytes_to_read as usize
+        };
+
+
         // to place the read file
-        let mut buffer_for_rom = vec![0 as u8; self.rom.len()];
-        let buffer_size = buffer_for_rom.len();
+        let mut buffer_for_rom = vec![0 as u8; buffer_length];
 
         match file {
             Ok(opened_file) => {
                     let mut buffered_reader = BufReader::new(opened_file);
-                    if let Ok(()) = buffered_reader.read_exact(&mut buffer_for_rom[0..0 + buffer_size]) {
+                    let buffer_read_result = buffered_reader.read_exact(&mut buffer_for_rom[0..0 + buffer_length]);
 
-                        // copying the value from buffer to rom
-                        for (i, value) in self.rom.iter_mut().enumerate() {
-                            *value = buffer_for_rom[i].into();
+                    match buffer_read_result {
+                        Ok(_) => {
+                            // copying the value from buffer to rom
+                            for i in (*start_location as usize)..(*start_location as usize) + buffer_length {
+                                self.rom[i] = buffer_for_rom[i].into();
+                            }
+                            true
                         }
-                        true
-                    } else {
-                        false  
+                        ,
+                        Err(err) => {
+                            match err.kind() {
+                                // if eof is reached before filling the buffer
+                                // we can safely copy the rest of the buffer, as it was initialized with zeros
+                                ErrorKind::UnexpectedEof => {
+                                    // copying the value from buffer to rom
+                                    for i in (*start_location as usize)..(*start_location as usize) + buffer_length {
+                                        self.rom[i] = buffer_for_rom[i].into();
+                                    }
+                                    true
+                                },
+                                _ => false,
+                            }
+                        },
                     }
                 },
             Err(_) => false
