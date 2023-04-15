@@ -43,11 +43,11 @@ thread_local! (
 /**
  * Creates new Processor with default values.
  */
-pub fn create_processor() {
+pub fn create_processor(program_counter: Option<u16>) {
     INSTANCE.with(|ins| {
         let mut instance = ins.borrow_mut();
 
-        instance.processor = Some(Processor::new());
+        instance.processor = Some(Processor::new_setup(program_counter));
         instance.total_clock_cycle = 0;
     });
 
@@ -91,12 +91,12 @@ pub fn tick_clock() {
 /**
  * Load the rom contents from the given file
  */
-pub fn load_rom_from_filepath(filepath: &str) {
+pub fn load_rom_from_filepath(filepath: &str, start_location: u16) {
     INSTANCE.with(|ins| {
         let mut instance = ins.borrow_mut();
         match &mut instance.processor {
             Some(proc) => {
-                proc.load_rom(filepath);
+                proc.load_rom(filepath, &start_location);
             }
             None => (),
         }
@@ -152,13 +152,12 @@ pub fn get_processor_status() -> std::string::String {
  * Assumes that the bits given are in hexadecimal format and are in order.
  * Also, a byte is represented by 2 hexadecimal bits.
  */
-pub fn load_rom(bytes: String) {
+pub fn load_rom(bytes: String, start_location: Option<u16>) -> bool {
     INSTANCE.with(|ins| {
         let mut instance = ins.borrow_mut();
         match &mut instance.processor {
             Some(proc) => {
-                
-                // Spilliting into the groups of 2 as two hexadecimal bits = 8 binary bits
+                // Spilliting into the groups of 2 as two hexadecimal digits = 8 bits
                 let chars: Vec<char> = bytes.chars().collect();
                 let split = &chars
                     .chunks(2)
@@ -167,29 +166,42 @@ pub fn load_rom(bytes: String) {
 
                 let nums = split
                     .into_iter()
-                    .map(|ch| u8::from_str_radix(ch, 16).expect("Converstion Error"))
+                    .map(|ch| u8::from_str_radix(ch, 16).expect("Conversion Error"))
                     .collect::<Vec<u8>>();
 
                 log(format!("Loaded {:?}", nums).as_str());
 
-                // changing the rom
-                for (i, val) in nums.iter().enumerate() {
-                    if i < proc.bus.secondary_storage.len() {
-                        proc.bus.secondary_storage[i as u16] = *val;
+                match start_location {
+                    Some(location) => {
+                        // changing the rom
+                        for (i, val) in nums.iter().enumerate() {
+                            if i < proc.bus.secondary_storage.len() {
+                                proc.bus.write(location as u16 + i as u16, *val);
+                            }
+                        }
                     }
-                }
+                    None => {
+                        // changing the rom
+                        for (i, val) in nums.iter().enumerate() {
+                            if i < proc.bus.secondary_storage.len() {
+                                proc.bus.write(i as u16, *val);
+                            }
+                        }
+                    }
+                };
+                true
             }
-            None => {}
+            None => false
         }
     })
 }
 
 #[wasm_bindgen(js_name=getStorageLayout)]
 /**
- *   Returns serialized HashMap of [ storage : (start_index, end_index) ]
- * Upon deserialization a Object of {storage : (start_index, end_index)}
-    is obtained
- */
+*   Returns serialized HashMap of [ storage : (start_index, end_index) ]
+* Upon deserialization a Object of {storage : (start_index, end_index)}
+   is obtained
+*/
 pub fn get_storage_layout() -> std::string::String {
     INSTANCE.with(|ins| {
         let mut instance = ins.borrow_mut();
@@ -203,6 +215,13 @@ pub fn get_storage_layout() -> std::string::String {
 
                 let storage_to_location: HashMap<String, (usize, usize)> = HashMap::from([
                     (String::from("memory"), (0, memory_len)),
+                    (
+                        String::from("stack"),
+                        (
+                            processor::STACK_ADDRESS_RANGE.0 as usize,
+                            processor::STACK_ADDRESS_RANGE.1 as usize,
+                        ),
+                    ),
                     (String::from("other"), (memory_len, memory_len + other_len)),
                     (
                         String::from("secondary_storage"),
@@ -216,6 +235,94 @@ pub fn get_storage_layout() -> std::string::String {
                 serde_json::to_string(&storage_to_location).unwrap()
             }
             None => "{}".to_owned(),
+        }
+    })
+}
+
+#[wasm_bindgen(js_name=getStack)]
+/**
+ Returns the stack contents
+*/
+pub fn get_stack() -> std::string::String {
+    let (stack_start, stack_end) = processor::STACK_ADDRESS_RANGE;
+
+    INSTANCE.with(|ins| {
+        let mut instance = ins.borrow_mut();
+        match &mut instance.processor {
+            Some(proc) => {
+                let stack_contents = &proc.bus.memory[stack_start..=stack_end];
+
+                serde_json::to_string(&stack_contents).unwrap()
+            }
+            None => "{}".to_owned(),
+        }
+    })
+}
+
+#[wasm_bindgen(js_name=getDisassembly)]
+/**
+* Gets the disassembly starting from
+ the location pointed by program counter returning total of `n_lines`
+*/
+pub fn get_disassembly(n_lines: u16) -> std::string::String {
+    INSTANCE.with(|ins| {
+        let mut instance = ins.borrow_mut();
+        match &mut instance.processor {
+            Some(proc) => {
+                serde_json::to_string(&proc.disassembly(&proc.program_counter, &n_lines)).unwrap()
+            }
+            None => "{}".to_owned(),
+        }
+    })
+}
+
+#[wasm_bindgen(js_name=getDisassemblyRange)]
+/**
+* Gets the disassembly starting from
+ the location pointed by program counter returning total of `n_lines`
+*/
+pub async fn get_disassembly_range(start: u16, n_lines: u16) -> std::string::String {
+    INSTANCE.with(|ins| {
+        let mut instance = ins.borrow_mut();
+        match &mut instance.processor {
+            Some(proc) => {
+                serde_json::to_string(&proc.disassembly(&start, &n_lines)).unwrap()
+            }
+            None => "{}".to_owned(),
+        }
+    })
+}
+
+#[wasm_bindgen(js_name=getDisassemblyAll)]
+/**
+* Gets the disassembly starting from 0000H TO FFFFH
+*/
+pub fn get_disassembly_all() -> std::string::String {
+    INSTANCE.with(|ins| {
+        let mut instance = ins.borrow_mut();
+        match &mut instance.processor {
+            Some(proc) => serde_json::to_string(&proc.disassembly(&0x0000, &0xFFFF)).unwrap(),
+            None => "{}".to_owned(),
+        }
+    })
+}
+
+#[wasm_bindgen(js_name=getDefaultProgramCounter)]
+/**
+ * Returns the default program counter used by processor
+ *
+ */
+pub fn get_default_program_counter() -> u16 {
+    processor::INITIAL_PROGRAM_COUNTER
+}
+
+#[wasm_bindgen(js_name=getCurrentProgramCounter)]
+pub fn get_current_program_counter() -> Option<u16> {
+    INSTANCE.with(|ins| {
+        let mut instance = ins.borrow_mut();
+        match &mut instance.processor {
+            Some(proc) => Some(proc.program_counter),
+            None => None,
         }
     })
 }
